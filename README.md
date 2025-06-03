@@ -30,8 +30,8 @@ A Chrome extension and backend service that lets you ask questions about the con
 
 1. **Clone the repository:**
    ```sh
-   git clone <repo-url>
-   cd web-qa-extension
+   git clone https://github.com/kxshrx/answerly.git
+   cd answerly
    ```
 
 2. **Install Python dependencies:**
