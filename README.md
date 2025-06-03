@@ -1,4 +1,4 @@
-# Web QA Extension
+# Answerly
 
 A Chrome extension and backend service that lets you ask questions about the content of any webpage. It uses advanced AI models from Hugging Face and Google Gemini to extract, embed, and answer questions based on the live content of the page you are viewing.
 
