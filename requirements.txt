@@ -11,3 +11,5 @@ sentence-transformers
 torch
 faiss-cpu
 unstructured
+uvicorn
+uvicorn

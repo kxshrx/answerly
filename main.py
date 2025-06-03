@@ -11,6 +11,7 @@ from langchain_core.runnables import RunnableLambda, RunnableParallel, RunnableP
 from langchain_core.output_parsers import StrOutputParser
 import os
 import sys
+import uuid
 
 # === Load environment ===
 load_dotenv()
@@ -21,52 +22,16 @@ class QAResponse(BaseModel):
     answer: str
     source: str  # "Based on webpage content" or "Generated from general knowledge"
 
-# === Initialize LLM model ===
+# === Initialize LLM and embedding model ===
 llm_model = ChatGoogleGenerativeAI(model='gemini-2.0-flash-lite')
-
-# === Embedding model ===
 embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-# === Load webpage content ===
-URLS = ['https://en.wikipedia.org/wiki/FIFA_World_Cup']
-loader = UnstructuredURLLoader(urls=URLS)
-
-try:
-    documents = loader.load()
-    if not documents:
-        raise ValueError("No content was extracted from the webpage.")
-except Exception as e:
-    print(f"Error fetching or processing {URLS[0]}, exception: {e}")
-    documents = []
-
-if not documents:
-    print("No documents to process. Exiting...")
-    sys.exit(1)
-
-# === Split text ===
-text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-chunks = [chunk for doc in documents for chunk in text_splitter.split_text(doc.page_content)]
-
-if not chunks:
-    print("No text chunks generated. Exiting...")
-    sys.exit(1)
-
-# === Build vector store ===
-vector_store = Chroma.from_texts(
-    texts=chunks,
-    embedding=embedding_model,
-    collection_name="qa_db",
-    persist_directory=None if DEV_MODE else "chroma_db"
-)
-if not DEV_MODE:
-    vector_store.persist()
-
-# === Prompt template ===
+# === Prompt Template ===
 prompt_template = PromptTemplate(
     template=(
         "You are an intelligent assistant designed to answer questions strictly based on the content of a given webpage.\n"
         "Use the following extracted content from the page to provide accurate, concise, and clear answers.\n"
-        "If the answer is not explicitly found in the provided context, you may use your general knowledge but please clearly indicate that.\n\n"
+        "If the answer is not explicitly found in the provided context, you may use your general knowledge but please clearly indicate that. and dont hesistate from using your knowledge base if answer is absent in the provided context.\n\n"
         "Webpage Content:\n{context}\n\n"
         "User Question:\n{query}\n\n"
         "Please respond with a JSON object having two fields:\n"
@@ -77,38 +42,70 @@ prompt_template = PromptTemplate(
     input_variables=["context", "query"]
 )
 
-# === Output parser ===
+# === Output Parser ===
 output_parser = PydanticOutputParser(pydantic_object=QAResponse)
 
-# === Vector search chain ===
-def vector_search_fn(query: str) -> str:
-    embedded_query = embedding_model.embed_query(query)
-    docs = vector_store.similarity_search_by_vector(embedding=embedded_query, k=5)
-    return "\n\n".join([doc.page_content for doc in docs])
 
-vector_search_chain = RunnableLambda(vector_search_fn)
-
-# === Prompt construction chain (parallel + prompt fill) ===
-parallel_chain = RunnableParallel({
-    "context": vector_search_chain,
-    "query": RunnablePassthrough()
-})
-
-# === Final chain: prompt → LLM → parse ===
-llm_chain = (
-    parallel_chain
-    | prompt_template
-    | llm_model
-    | StrOutputParser()
-    | output_parser
-)
-
-# === Execution ===
-if __name__ == "__main__":
-    question = "How does the cricket World Cup tournament work?"
+# === Main dynamic function ===
+def create_llm_chain(question: str, url: str) -> QAResponse:
+    # 1. Load webpage content
+    loader = UnstructuredURLLoader(urls=[url])
     try:
-        response = llm_chain.invoke(question)
-        print("\nAnswer:", response.answer)
+        documents = loader.load()
+        if not documents:
+            raise ValueError("No content could be extracted from the URL.")
+    except Exception as e:
+        raise RuntimeError(f"Failed to load content from {url}: {str(e)}")
+
+    # 2. Split into text chunks
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+    chunks = [chunk for doc in documents for chunk in text_splitter.split_text(doc.page_content)]
+
+    if not chunks:
+        raise RuntimeError("No text chunks generated from the webpage.")
+
+    # 3. Build vector store
+    collection_name = f"qa_session_{uuid.uuid4().hex}" if DEV_MODE else "qa_db"
+    vector_store = Chroma.from_texts(
+        texts=chunks,
+        embedding=embedding_model,
+        collection_name=collection_name,
+        persist_directory=None if DEV_MODE else "chroma_db"
+    )
+    if not DEV_MODE:
+        vector_store.persist()
+
+    # 4. Define similarity search function
+    def vector_search_fn(query: str) -> str:
+        embedded_query = embedding_model.embed_query(query)
+        docs = vector_store.similarity_search_by_vector(embedding=embedded_query, k=5)
+        return "\n\n".join([doc.page_content for doc in docs])
+
+    # 5. Construct pipeline
+    chain = (
+        RunnableParallel({
+            "context": RunnableLambda(vector_search_fn),
+            "query": RunnablePassthrough()
+        })
+        | prompt_template
+        | llm_model
+        | StrOutputParser()
+        | output_parser
+    )
+
+    return chain.invoke(question)
+
+
+# === CLI for local testing ===
+if __name__ == "__main__":
+    question = input("Enter your question: ").strip()
+    url = input("Enter the URL: ").strip()
+
+    try:
+        print("\nFetching answer...")
+        response = create_llm_chain(question, url)
+        print("\n=== RESPONSE ===")
+        print("Answer:", response.answer)
         print("Source:", response.source)
     except Exception as e:
-        print("Failed to generate response:", e)
+        print("Error:", e)
