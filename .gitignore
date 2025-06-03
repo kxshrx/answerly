@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.ipynb_checkpoints
+
+# Environment
+.env
+.env.*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Chroma vector DB
+chroma_db/
+
+# LangChain cache (if used)
+.cache/
+langchain.db
+
+# HuggingFace cache
+~/.cache/huggingface/
+huggingface/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Mac and system files
+.DS_Store
+Thumbs.db
+
+# Optional: virtual environments
+venv/
+env/
+*.egg-info/
