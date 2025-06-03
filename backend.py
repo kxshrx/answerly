@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from main import create_llm_chain, QAResponse  # <-- Your updated model.py
+from main import create_llm_chain, QAResponse
 
 app = FastAPI()
 
